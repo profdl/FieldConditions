@@ -18,21 +18,6 @@ export class SimulationEngine {
     this.initializeParticles();
   }
 
-  public updateParams(newParams: SimulationParams): void {
-    const oldCount = this.params.particleCount;
-    this.params = newParams;
-
-    // Reinitialize particles if count changed
-    if (oldCount !== newParams.particleCount) {
-      this.initializeParticles();
-    }
-
-    // Update particle speeds
-    this.particles.forEach(particle => {
-      particle.speed = newParams.moveSpeed;
-    });
-  }
-
   private initializeParticles(): void {
     this.particles = [];
     for (let i = 0; i < this.params.particleCount; i++) {
@@ -42,13 +27,86 @@ export class SimulationEngine {
         angle: Math.random() * Math.PI * 2,
         speed: this.params.moveSpeed,
         vx: Math.cos(Math.random() * Math.PI * 2) * this.params.moveSpeed,
-        vy: Math.sin(Math.random() * Math.PI * 2) * this.params.moveSpeed
+        vy: Math.sin(Math.random() * Math.PI * 2) * this.params.moveSpeed,
+        isStuck: false
       });
     }
   }
 
+  public updateParams(newParams: SimulationParams): void {
+    const oldParticleCount = this.params.particleCount;
+    const newParticleCount = newParams.particleCount;
+    
+    // Update parameters
+    this.params = { ...newParams };
+
+    // Handle particle count changes without resetting existing particles
+    if (newParticleCount > oldParticleCount) {
+      // Add new particles
+      for (let i = oldParticleCount; i < newParticleCount; i++) {
+        this.particles.push({
+          x: Math.random() * this.width,
+          y: Math.random() * this.height,
+          angle: Math.random() * Math.PI * 2,
+          speed: this.params.moveSpeed,
+          vx: Math.cos(Math.random() * Math.PI * 2) * this.params.moveSpeed,
+          vy: Math.sin(Math.random() * Math.PI * 2) * this.params.moveSpeed,
+          isStuck: false
+        });
+      }
+    } else if (newParticleCount < oldParticleCount) {
+      // Remove excess particles, prioritizing non-stuck particles
+      const particlesToRemove = oldParticleCount - newParticleCount;
+      
+      // First try to remove non-stuck particles
+      const nonStuckIndices = this.particles
+        .map((p, i) => ({ index: i, isStuck: p.isStuck }))
+        .filter(p => !p.isStuck)
+        .map(p => p.index)
+        .reverse(); // Remove from end to avoid index shifting
+
+      let removed = 0;
+      for (const index of nonStuckIndices) {
+        if (removed >= particlesToRemove) break;
+        this.particles.splice(index, 1);
+        removed++;
+      }
+
+      // If we still need to remove more, remove stuck particles
+      if (removed < particlesToRemove) {
+        this.particles.splice(-(particlesToRemove - removed));
+      }
+    }
+
+    // Update speeds of existing particles
+    this.particles.forEach(particle => {
+      if (!particle.isStuck) {
+        const currentSpeed = Math.sqrt(particle.vx! * particle.vx! + particle.vy! * particle.vy!);
+        if (currentSpeed > 0) {
+          const scale = this.params.moveSpeed / currentSpeed;
+          particle.vx! *= scale;
+          particle.vy! *= scale;
+        }
+        particle.speed = this.params.moveSpeed;
+      }
+    });
+  }
+
   public restartParticles(): void {
     this.initializeParticles();
+  }
+
+  public spawnStickyParticle(x: number, y: number): void {
+    const particle: Particle = {
+      x,
+      y,
+      angle: 0,
+      speed: 0,
+      vx: 0,
+      vy: 0,
+      isStuck: true
+    };
+    this.particles.push(particle);
   }
 
   private updateGrid() {
@@ -65,6 +123,8 @@ export class SimulationEngine {
   }
 
   private calculateForces(particle: Particle) {
+    if (particle.isStuck) return { vx: 0, vy: 0 };
+
     // Calculate flocking forces
     let alignmentX = 0, alignmentY = 0;
     let cohesionX = 0, cohesionY = 0;
@@ -74,6 +134,9 @@ export class SimulationEngine {
     const gridX = Math.floor(particle.x / this.gridSize);
     const gridY = Math.floor(particle.y / this.gridSize);
     const radius = Math.ceil(this.params.perceptionRadius / this.gridSize);
+
+    // Check for nearby stuck particles
+    let hasNearbyStuck = false;
 
     for (let dy = -radius; dy <= radius; dy++) {
       for (let dx = -radius; dx <= radius; dx++) {
@@ -88,6 +151,11 @@ export class SimulationEngine {
           const dy = other.y - particle.y;
           const distanceSquared = dx * dx + dy * dy;
           const distance = Math.sqrt(distanceSquared);
+
+          // Check for sticking
+          if (other.isStuck && distance < this.params.particleSize * 3) {
+            hasNearbyStuck = true;
+          }
 
           if (distance < this.params.perceptionRadius) {
             // Alignment and Cohesion
@@ -107,6 +175,17 @@ export class SimulationEngine {
           }
         });
       }
+    }
+
+    // Handle sticking probability
+    if (hasNearbyStuck && Math.random() < this.params.stickingProbability) {
+      particle.isStuck = true;
+      return { vx: 0, vy: 0 };
+    }
+
+    // Handle release probability for stuck particles
+    if (particle.isStuck && Math.random() < this.params.releaseProbability) {
+      particle.isStuck = false;
     }
 
     // Calculate chemical sensing forces
@@ -165,19 +244,23 @@ export class SimulationEngine {
     // Normalize final velocity
     const speed = Math.sqrt(vx * vx + vy * vy);
     if (speed > 0) {
-      vx = (vx / speed) * particle.speed;
-      vy = (vy / speed) * particle.speed;
+      vx = (vx / speed) * this.params.moveSpeed;
+      vy = (vy / speed) * this.params.moveSpeed;
     }
 
     return { vx, vy };
   }
 
   private updateParticle(particle: Particle) {
+    // Skip update for stuck particles
+    if (particle.isStuck) return;
+
     // Calculate combined forces
     const { vx, vy } = this.calculateForces(particle);
     particle.vx = vx;
     particle.vy = vy;
     particle.angle = Math.atan2(vy, vx);
+    particle.speed = this.params.moveSpeed;
 
     // Update position
     particle.x += particle.vx;
@@ -187,14 +270,29 @@ export class SimulationEngine {
     particle.x = (particle.x + this.width) % this.width;
     particle.y = (particle.y + this.height) % this.height;
 
-    // Deposit chemical
-    const idx = Math.floor(particle.y) * this.width + Math.floor(particle.x);
-    this.chemicalField[idx] = Math.min(1.0, this.chemicalField[idx] + this.params.chemicalDepositRate);
+    // Deposit chemical with radius based on particle size
+    const radius = Math.max(1, Math.floor(this.params.particleSize));
+    const depositValue = this.params.chemicalDepositRate / (radius * radius);
+    
+    for (let dy = -radius; dy <= radius; dy++) {
+      for (let dx = -radius; dx <= radius; dx++) {
+        if (dx * dx + dy * dy <= radius * radius) {
+          const px = Math.floor(particle.x + dx);
+          const py = Math.floor(particle.y + dy);
+          if (px >= 0 && px < this.width && py >= 0 && py < this.height) {
+            const idx = py * this.width + px;
+            if (idx >= 0 && idx < this.chemicalField.length) {
+              this.chemicalField[idx] = Math.min(1.0, this.chemicalField[idx] + depositValue);
+            }
+          }
+        }
+      }
+    }
   }
 
   private sense(particle: Particle): number[] {
     const sensorAngle = this.params.sensorAngle;
-    const sensorDistance = this.params.sensorDistance;
+    const sensorDistance = this.params.sensorDistance * this.params.particleSize;
     const sensors: number[] = [];
 
     for (let i = -1; i <= 1; i++) {
@@ -203,7 +301,12 @@ export class SimulationEngine {
       const sensorY = particle.y + Math.sin(angle) * sensorDistance;
       
       if (sensorX >= 0 && sensorX < this.width && sensorY >= 0 && sensorY < this.height) {
-        sensors.push(this.chemicalField[Math.floor(sensorY) * this.width + Math.floor(sensorX)]);
+        const idx = Math.floor(sensorY) * this.width + Math.floor(sensorX);
+        if (idx >= 0 && idx < this.chemicalField.length) {
+          sensors.push(this.chemicalField[idx]);
+        } else {
+          sensors.push(0);
+        }
       } else {
         sensors.push(0);
       }
@@ -224,39 +327,51 @@ export class SimulationEngine {
     // Apply food sources
     this.foodSources.forEach(food => {
       const radiusSquared = food.radius * food.radius;
-      for (let dy = -food.radius; dy <= food.radius; dy++) {
-        for (let dx = -food.radius; dx <= food.radius; dx++) {
-          if (dx * dx + dy * dy <= radiusSquared) {
+      const effectiveRadius = Math.max(1, Math.floor(food.radius * this.params.particleSize));
+      for (let dy = -effectiveRadius; dy <= effectiveRadius; dy++) {
+        for (let dx = -effectiveRadius; dx <= effectiveRadius; dx++) {
+          const distanceSquared = (dx * dx + dy * dy) / (this.params.particleSize * this.params.particleSize);
+          if (distanceSquared <= radiusSquared) {
             const px = Math.floor(food.x + dx);
             const py = Math.floor(food.y + dy);
             if (px >= 0 && px < this.width && py >= 0 && py < this.height) {
               const idx = py * this.width + px;
-              this.chemicalField[idx] = food.strength;
+              if (idx >= 0 && idx < this.chemicalField.length) {
+                this.chemicalField[idx] = food.strength;
+              }
             }
           }
         }
       }
     });
 
-    // Diffuse and decay
+    // Diffuse and decay with radius based on particle size
+    const radius = Math.max(1, Math.floor(this.params.particleSize));
     for (let y = 0; y < this.height; y++) {
       for (let x = 0; x < this.width; x++) {
         const idx = y * this.width + x;
         let sum = 0;
         let count = 0;
 
-        for (let dy = -1; dy <= 1; dy++) {
-          for (let dx = -1; dx <= 1; dx++) {
-            const nx = (x + dx + this.width) % this.width;
-            const ny = (y + dy + this.height) % this.height;
-            sum += this.chemicalField[ny * this.width + nx];
-            count++;
+        for (let dy = -radius; dy <= radius; dy++) {
+          for (let dx = -radius; dx <= radius; dx++) {
+            if (dx * dx + dy * dy <= radius * radius) {
+              const nx = (x + dx + this.width) % this.width;
+              const ny = (y + dy + this.height) % this.height;
+              const nidx = ny * this.width + nx;
+              if (nidx >= 0 && nidx < this.chemicalField.length) {
+                sum += this.chemicalField[nidx];
+                count++;
+              }
+            }
           }
         }
 
-        newField[idx] = (sum / count) * this.params.diffusionRate + 
-                       this.chemicalField[idx] * (1 - this.params.diffusionRate);
-        newField[idx] *= (1 - this.params.decayRate);
+        if (count > 0) {
+          newField[idx] = (sum / count) * this.params.diffusionRate + 
+                         this.chemicalField[idx] * (1 - this.params.diffusionRate);
+          newField[idx] *= (1 - this.params.decayRate);
+        }
       }
     }
 

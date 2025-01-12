@@ -13,7 +13,7 @@ export function AccordionItem({ title, children, defaultOpen = false }: Accordio
   return (
     <div className="border-b border-gray-200 dark:border-gray-700/50 last:border-b-0">
       <button
-        className="flex w-full items-center justify-between py-3 text-left"
+        className="flex w-full items-center justify-between py-3 text-left bg-gray-50/80 dark:bg-gray-800/50 px-3 rounded-sm"
         onClick={() => setIsOpen(!isOpen)}
       >
         <span className="text-xs font-semibold uppercase tracking-wider text-gray-600 dark:text-gray-400">

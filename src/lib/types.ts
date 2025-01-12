@@ -16,11 +16,14 @@ export interface SimulationParams {
   particleSize: number;
   backgroundColor: string;
   isPaused: boolean;
+  stickingProbability: number;
+  releaseProbability: number;
 }
 
 export interface FoodParams {
   size: number;
   strength: number;
+  opacity: number;
   color: string;
 }
 
@@ -31,6 +34,7 @@ export interface Particle {
   speed: number;
   vx?: number;
   vy?: number;
+  isStuck?: boolean;
 }
 
 export type ChemicalField = Float32Array;

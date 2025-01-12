@@ -18,28 +18,32 @@ const defaultParams: SimulationParams = {
   decayRate: 0.1,
   chemicalDepositRate: 0.05,
   alignmentForce: 0.3,
-  cohesionForce: 0.3,
+  cohesionForce: 0.0,
   separationForce: 0.5,
   perceptionRadius: 30,
   fieldColor: '#808080',
   moldColor: '#000000',
   particleSize: 1,
   backgroundColor: '#ffffff',
-  isPaused: false
+  isPaused: false,
+  stickingProbability: 1.0,
+  releaseProbability: 0
 };
 
 const defaultFoodParams: FoodParams = {
   size: 15,
   strength: 1.0,
+  opacity: 1.0,
   color: '#00ff00'
 };
 
 function App() {
   const [params, setParams] = useState<SimulationParams>(defaultParams);
   const [foodParams, setFoodParams] = useState<FoodParams>(defaultFoodParams);
-  const [selectedTool, setSelectedTool] = useState<'attract' | 'erase'>('attract');
+  const [selectedTool, setSelectedTool] = useState<'attract' | 'erase' | 'pin'>('attract');
   const [restartFn, setRestartFn] = useState<(() => void) | null>(null);
   const [clearFoodFn, setClearFoodFn] = useState<(() => void) | null>(null);
+  const [spawnFn, setSpawnFn] = useState<((x: number, y: number) => void) | null>(null);
   const [isDark, setIsDark] = useState(false);
   const [isControlDrawerOpen, setIsControlDrawerOpen] = useState(true);
   const [showSaveDialog, setShowSaveDialog] = useState(false);
@@ -72,7 +76,16 @@ function App() {
     }
   }, [clearFoodFn]);
 
-  const handleLoadSettings = useCallback((newParams: SimulationParams, newFoodParams: FoodParams) => {
+  const handleSpawnStickyParticle = useCallback(() => {
+    if (spawnFn && selectedTool === 'pin') {
+      // Spawn in the center of the screen
+      const x = window.innerWidth / 2;
+      const y = (window.innerHeight - 56) / 2; // Subtract header height
+      spawnFn(x, y);
+    }
+  }, [spawnFn, selectedTool]);
+
+  const handleLoadSettings = useCallback(async (newParams: SimulationParams, newFoodParams: FoodParams) => {
     setParams(newParams);
     setFoodParams(newFoodParams);
     if (restartFn) {
@@ -130,6 +143,7 @@ function App() {
           selectedTool={selectedTool}
           onRestart={setRestartFn}
           onClearFood={setClearFoodFn}
+          onSpawn={setSpawnFn}
         />
       </div>
 
@@ -158,6 +172,7 @@ function App() {
             onSave={() => setShowSaveDialog(true)}
             onLoad={handleLoadSettings}
             isAuthenticated={!!currentUser}
+            onSpawnStickyParticle={handleSpawnStickyParticle}
           />
         </div>
       </div>

@@ -7,40 +7,39 @@ interface Props {
   height: number;
   params: SimulationParams;
   foodParams: FoodParams;
-  selectedTool: 'attract' | 'erase';
+  selectedTool: 'attract' | 'erase' | 'pin';
   onRestart?: (restartFn: () => void) => void;
   onClearFood?: (clearFoodFn: () => void) => void;
+  onSpawn?: (spawnFn: (x: number, y: number) => void) => void;
 }
 
 export const SimulationCanvas = forwardRef<HTMLCanvasElement, Props>(
-  ({ width, height, params, foodParams, selectedTool, onRestart, onClearFood }, ref) => {
+  ({ width, height, params, foodParams, selectedTool, onRestart, onClearFood, onSpawn }, ref) => {
     const canvasRef = useRef<HTMLCanvasElement>(null);
-    const engineRef = useRef<SimulationEngine>();
+    const engineRef = useRef<SimulationEngine | null>(null);
     const frameIdRef = useRef<number>();
     const [isDragging, setIsDragging] = useState(false);
-    const [lastX, setLastX] = useState(0);
-    const [lastY, setLastY] = useState(0);
-    const [canvasDimensions, setCanvasDimensions] = useState({ width: 0, height: 0 });
+    const [canvasDimensions, setCanvasDimensions] = useState({ width, height });
+    const lastPinPositionRef = useRef<{ x: number; y: number } | null>(null);
+    const paramsRef = useRef(params);
 
     // Initialize canvas dimensions
     useEffect(() => {
       const updateDimensions = () => {
+        const newWidth = window.innerWidth;
+        const newHeight = window.innerHeight - 56; // Subtract header height
+        setCanvasDimensions({ width: newWidth, height: newHeight });
+        
         if (canvasRef.current) {
-          const newWidth = window.innerWidth;
-          const newHeight = window.innerHeight - 56; // Subtract header height
-          setCanvasDimensions({ width: newWidth, height: newHeight });
           canvasRef.current.width = newWidth;
           canvasRef.current.height = newHeight;
-          if (engineRef.current) {
-            engineRef.current = new SimulationEngine(newWidth, newHeight, params);
-          }
         }
       };
 
       updateDimensions();
       window.addEventListener('resize', updateDimensions);
       return () => window.removeEventListener('resize', updateDimensions);
-    }, [params]);
+    }, []);
 
     const handleRestart = useCallback(() => {
       if (engineRef.current) {
@@ -54,6 +53,13 @@ export const SimulationCanvas = forwardRef<HTMLCanvasElement, Props>(
       }
     }, []);
 
+    const handleSpawnStickyParticle = useCallback((x: number, y: number) => {
+      if (engineRef.current) {
+        engineRef.current.spawnStickyParticle(x, y);
+      }
+    }, []);
+
+    // Initialize engine only once
     useEffect(() => {
       const canvas = canvasRef.current;
       if (!canvas || canvasDimensions.width === 0 || canvasDimensions.height === 0) return;
@@ -61,28 +67,33 @@ export const SimulationCanvas = forwardRef<HTMLCanvasElement, Props>(
       const ctx = canvas.getContext('2d');
       if (!ctx) return;
 
-      engineRef.current = new SimulationEngine(canvasDimensions.width, canvasDimensions.height, params);
+      // Create engine if it doesn't exist
+      if (!engineRef.current) {
+        engineRef.current = new SimulationEngine(canvasDimensions.width, canvasDimensions.height, params);
+        paramsRef.current = params;
+      }
 
-      if (onRestart) {
-        onRestart(handleRestart);
-      }
-      if (onClearFood) {
-        onClearFood(handleClearFood);
-      }
+      // Register callbacks
+      if (onRestart) onRestart(handleRestart);
+      if (onClearFood) onClearFood(handleClearFood);
+      if (onSpawn) onSpawn(handleSpawnStickyParticle);
 
       return () => {
         if (frameIdRef.current) {
           cancelAnimationFrame(frameIdRef.current);
         }
       };
-    }, [canvasDimensions.width, canvasDimensions.height, onRestart, onClearFood, handleRestart, handleClearFood]);
+    }, [canvasDimensions.width, canvasDimensions.height, onRestart, onClearFood, onSpawn, handleRestart, handleClearFood, handleSpawnStickyParticle]);
 
+    // Update engine parameters when they change
     useEffect(() => {
-      if (engineRef.current) {
+      if (engineRef.current && params !== paramsRef.current) {
         engineRef.current.updateParams(params);
+        paramsRef.current = params;
       }
     }, [params]);
 
+    // Main render loop
     useEffect(() => {
       const canvas = canvasRef.current;
       const ctx = canvas?.getContext('2d');
@@ -120,8 +131,10 @@ export const SimulationCanvas = forwardRef<HTMLCanvasElement, Props>(
 
         // Draw particles
         const moldColor = hexToRgb(params.moldColor);
-        ctx.fillStyle = `rgba(${moldColor.r}, ${moldColor.g}, ${moldColor.b}, 0.8)`;
         particles.forEach(particle => {
+          ctx.fillStyle = particle.isStuck 
+            ? `rgba(${moldColor.r}, ${moldColor.g}, ${moldColor.b}, 1)` 
+            : `rgba(${moldColor.r}, ${moldColor.g}, ${moldColor.b}, 0.8)`;
           ctx.beginPath();
           ctx.arc(particle.x, particle.y, params.particleSize, 0, Math.PI * 2);
           ctx.fill();
@@ -148,45 +161,62 @@ export const SimulationCanvas = forwardRef<HTMLCanvasElement, Props>(
       } : { r: 0, g: 0, b: 0 };
     };
 
-    const addFoodAtPosition = (e: React.MouseEvent<HTMLCanvasElement>) => {
-      if (!engineRef.current || !canvasRef.current) return;
-
+    const getCanvasCoordinates = (e: React.MouseEvent<HTMLCanvasElement>) => {
       const canvas = canvasRef.current;
+      if (!canvas) return null;
+
       const rect = canvas.getBoundingClientRect();
       const scaleX = canvas.width / rect.width;
       const scaleY = canvas.height / rect.height;
       
-      setLastX(e.clientX - rect.left);
-      setLastY(e.clientY - rect.top);
-      
-      const x = (e.clientX - rect.left) * scaleX;
-      const y = (e.clientY - rect.top) * scaleY;
+      return {
+        x: (e.clientX - rect.left) * scaleX,
+        y: (e.clientY - rect.top) * scaleY
+      };
+    };
 
-      if (selectedTool === 'erase') {
+    const handleInteraction = (e: React.MouseEvent<HTMLCanvasElement>) => {
+      if (!engineRef.current) return;
+
+      const coords = getCanvasCoordinates(e);
+      if (!coords) return;
+
+      const { x, y } = coords;
+
+      if (selectedTool === 'pin') {
+        // Only add a new pinned particle if we've moved far enough from the last one
+        if (!lastPinPositionRef.current || 
+            Math.hypot(x - lastPinPositionRef.current.x, y - lastPinPositionRef.current.y) > params.particleSize * 2) {
+          engineRef.current.spawnStickyParticle(x, y);
+          lastPinPositionRef.current = { x, y };
+        }
+      } else if (selectedTool === 'erase') {
         engineRef.current.removeFoodSourcesNear(x, y, foodParams.size);
-      } else {
-        const strength = foodParams.strength;
-        engineRef.current.addFoodSource(x, y, foodParams.size, strength);
+      } else if (selectedTool === 'attract') {
+        engineRef.current.addFoodSource(x, y, foodParams.size, foodParams.strength);
       }
     };
 
     const handleMouseDown = (e: React.MouseEvent<HTMLCanvasElement>) => {
       setIsDragging(true);
-      addFoodAtPosition(e);
+      lastPinPositionRef.current = null;
+      handleInteraction(e);
     };
 
     const handleMouseMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
       if (isDragging) {
-        addFoodAtPosition(e);
+        handleInteraction(e);
       }
     };
 
     const handleMouseUp = () => {
       setIsDragging(false);
+      lastPinPositionRef.current = null;
     };
 
     const handleMouseLeave = () => {
       setIsDragging(false);
+      lastPinPositionRef.current = null;
     };
 
     return (

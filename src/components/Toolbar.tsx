@@ -1,11 +1,11 @@
 import React, { useState, useRef } from 'react';
-import { Brush, Eraser, Play, Pause, RotateCcw, Save, FolderOpen } from 'lucide-react';
+import { Brush, Eraser, Play, Pause, RotateCcw, Save, FolderOpen, Pin } from 'lucide-react';
 import { LoadSettingsPopover } from './LoadSettingsPopover';
 import { SimulationParams, FoodParams } from '../lib/types';
 
 interface Props {
-  selectedTool: 'attract' | 'erase';
-  onSelectTool: (tool: 'attract' | 'erase') => void;
+  selectedTool: 'attract' | 'erase' | 'pin';
+  onSelectTool: (tool: 'attract' | 'erase' | 'pin') => void;
   onClearFood: () => void;
   isPaused: boolean;
   onPauseToggle: () => void;
@@ -13,6 +13,7 @@ interface Props {
   onSave: () => void;
   onLoad: (params: SimulationParams, foodParams: FoodParams) => void;
   isAuthenticated: boolean;
+  onSpawnStickyParticle: () => void;
 }
 
 export function Toolbar({ 
@@ -24,7 +25,8 @@ export function Toolbar({
   onReset,
   onSave,
   onLoad,
-  isAuthenticated 
+  isAuthenticated,
+  onSpawnStickyParticle
 }: Props) {
   const [showLoadMenu, setShowLoadMenu] = useState(false);
   const loadButtonRef = useRef<HTMLDivElement>(null);
@@ -34,7 +36,7 @@ export function Toolbar({
     icon: Icon, 
     label 
   }: { 
-    tool: 'attract' | 'erase'; 
+    tool: 'attract' | 'erase' | 'pin'; 
     icon: React.ElementType; 
     label: string;
   }) => (
@@ -68,6 +70,11 @@ export function Toolbar({
         <RotateCcw className="w-5 h-5" />
       </button>
       <div className="w-px h-6 bg-gray-200 dark:bg-gray-700" />
+      <ToolButton
+        tool="pin"
+        icon={Pin}
+        label="Spawn Sticky Particle"
+      />
       <ToolButton
         tool="attract"
         icon={Brush}

@@ -187,6 +187,27 @@ export function Controls({ params, foodParams, onChange, onFoodParamsChange }: P
         </div>
       </AccordionItem>
 
+      <AccordionItem title="DLA Behavior">
+        <div className="space-y-2">
+          <Slider
+            label="Sticking Probability"
+            value={params.stickingProbability}
+            min={0}
+            max={1}
+            step={0.01}
+            onChange={handleChange('stickingProbability')}
+          />
+          <Slider
+            label="Release Probability"
+            value={params.releaseProbability}
+            min={0}
+            max={1}
+            step={0.01}
+            onChange={handleChange('releaseProbability')}
+          />
+        </div>
+      </AccordionItem>
+
       <AccordionItem title="Food Settings">
         <div className="space-y-2">
           <Slider
@@ -200,10 +221,23 @@ export function Controls({ params, foodParams, onChange, onFoodParamsChange }: P
           <Slider
             label="Strength"
             value={foodParams.strength}
-            min={0}
-            max={5.0}
+            min={-5}
+            max={5}
             step={0.05}
             onChange={handleFoodParamChange('strength')}
+          />
+          <Slider
+            label="Opacity"
+            value={foodParams.opacity}
+            min={0}
+            max={1}
+            step={0.01}
+            onChange={handleFoodParamChange('opacity')}
+          />
+          <ColorPicker
+            label="Color"
+            value={foodParams.color}
+            onChange={handleFoodParamChange('color')}
           />
         </div>
       </AccordionItem>
